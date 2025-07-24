@@ -50,20 +50,23 @@ export default function HomeClient() {
     const newRoomId = Math.random().toString(36).substring(7);
     setUsername(username);
     localStorage.setItem("username", username);
-    // Save to backend (JSON) by joining the room
+
+    // Connect to socket and create room
     socket.connect();
-    if (socket.connected) {
+
+    const handleConnect = () => {
+      console.log("Socket connected, creating room:", newRoomId);
       socket.emit("join-room", newRoomId, username);
       socket.emit("get-user-rooms", username);
       router.push(`/chat/${newRoomId}`);
+      socket.off("connect", handleConnect);
+    };
+
+    if (socket.connected) {
+      handleConnect();
     } else {
-      socket.once("connect", () => {
-        socket.emit("join-room", newRoomId, username);
-        socket.emit("get-user-rooms", username);
-        router.push(`/chat/${newRoomId}`);
-      });
+      socket.on("connect", handleConnect);
     }
-    console.log(socket.connected, "status");
   };
 
   const joinRoom = () => {
@@ -81,28 +84,45 @@ export default function HomeClient() {
       setRoomIdError("");
     }
     if (hasError) return;
-    // Check if room exists before joining
+
+    // Connect to socket and check room
     socket.connect();
 
-    const handleRoomExists = (result: { roomId: string; exists: boolean }) => {
-      console.log(result, "chexk--joining");
-      if (result.roomId !== roomId) return;
-      if (result.exists) {
-        setUsername(username);
-        localStorage.setItem("username", username);
-        router.push(`/chat/${roomId}`);
-      } else {
-        toast({
-          title: "Room does not exist",
-          description: `Room ID '${roomId}' was not found. Please check and try again.`,
-          variant: "destructive",
-        });
-      }
-      socket.off("room-exists-result", handleRoomExists);
+    const handleConnect = () => {
+      console.log("Socket connected, checking room:", roomId);
+
+      const handleRoomExists = (result: {
+        roomId: string;
+        exists: boolean;
+      }) => {
+        console.log("Room exists result:", result);
+        if (result.roomId !== roomId) return;
+        if (result.exists) {
+          setUsername(username);
+          localStorage.setItem("username", username);
+          router.push(`/chat/${roomId}`);
+        } else {
+          toast({
+            title: "Room does not exist",
+            description: `Room ID '${roomId}' was not found. Please check and try again.`,
+            variant: "destructive",
+          });
+        }
+        socket.off("room-exists-result", handleRoomExists);
+      };
+
+      socket.on("room-exists-result", handleRoomExists);
+      socket.emit("check-room-exists", roomId);
+      localStorage.setItem("username", username);
+
+      socket.off("connect", handleConnect);
     };
-    socket.on("room-exists-result", handleRoomExists);
-    socket.emit("check-room-exists", roomId);
-    localStorage.setItem("username", username);
+
+    if (socket.connected) {
+      handleConnect();
+    } else {
+      socket.on("connect", handleConnect);
+    }
   };
 
   return (

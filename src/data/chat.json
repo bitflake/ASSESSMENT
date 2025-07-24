@@ -1,3 +1,12 @@
 {
-  "rooms": []
+  "rooms": [
+    {
+      "id": "jpbz8h",
+      "owner": "user1",
+      "users": [
+        "user1"
+      ],
+      "messages": []
+    }
+  ]
 }
