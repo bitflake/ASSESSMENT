@@ -52,14 +52,21 @@ export default function HomeClient() {
     localStorage.setItem("username", username);
     // Save to backend (JSON) by joining the room
     socket.connect();
-    socket.emit("join-room", newRoomId, username);
-    // Fetch updated rooms after creation
-    socket.emit("get-user-rooms", username);
-    console.log("toFinal", newRoomId);
-    router.push(`/chat/${newRoomId}`);
+    if (socket.connected) {
+      socket.emit("join-room", newRoomId, username);
+      socket.emit("get-user-rooms", username);
+      router.push(`/chat/${newRoomId}`);
+    } else {
+      socket.once("connect", () => {
+        socket.emit("join-room", newRoomId, username);
+        socket.emit("get-user-rooms", username);
+        router.push(`/chat/${newRoomId}`);
+      });
+    }
+    console.log(socket.connected, "status");
   };
 
-  const joinRoom = async () => {
+  const joinRoom = () => {
     let hasError = false;
     if (!username.trim()) {
       setUsernameError("Username is required");
@@ -75,7 +82,7 @@ export default function HomeClient() {
     }
     if (hasError) return;
     // Check if room exists before joining
-    await socket.connect();
+    socket.connect();
 
     const handleRoomExists = (result: { roomId: string; exists: boolean }) => {
       console.log(result, "chexk--joining");
@@ -94,7 +101,7 @@ export default function HomeClient() {
       socket.off("room-exists-result", handleRoomExists);
     };
     socket.on("room-exists-result", handleRoomExists);
-    await socket.emit("check-room-exists", roomId);
+    socket.emit("check-room-exists", roomId);
     localStorage.setItem("username", username);
   };
 
