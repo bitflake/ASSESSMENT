@@ -1,16 +1,16 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { useRouter, useParams } from 'next/navigation';
-import { socket } from '@/lib/socket';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card } from '@/components/ui/card';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
-import { useChatStore } from '@/store/chatStore';
-import { useToast } from '@/hooks/use-toast';
-import { LogOut, Send, Copy, Plus, MessageSquare } from 'lucide-react';
+import { useEffect, useState, useRef } from "react";
+import { useRouter, useParams } from "next/navigation";
+import { socket } from "@/lib/socket";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { useChatStore } from "@/store/chatStore";
+import { useToast } from "@/hooks/use-toast";
+import { LogOut, Send, Copy, Plus, MessageSquare } from "lucide-react";
 
 export default function ChatClient() {
   const router = useRouter();
@@ -19,51 +19,62 @@ export default function ChatClient() {
   const roomId = params.roomId as string;
 
   const { username, messages, addMessage, clearMessages } = useChatStore();
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState("");
+  const [typingUser, setTypingUser] = useState<string | null>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Dummy data for rooms - you'll replace this with real data
   const rooms = [
-    { id: roomId, name: 'Current Room', unread: 0, active: true },
-    { id: 'room-2', name: 'Room 2', unread: 3, active: false },
-    { id: 'room-3', name: 'Room 3', unread: 0, active: false },
+    { id: roomId, name: "Current Room", unread: 0, active: true },
+    { id: "room-2", name: "Room 2", unread: 3, active: false },
+    { id: "room-3", name: "Room 3", unread: 0, active: false },
   ];
 
   useEffect(() => {
     if (!roomId || !username) {
-      router.push('/');
+      router.push("/");
       return;
     }
 
     socket.connect();
-    socket.emit('join-room', roomId, username);
+    socket.emit("join-room", roomId, username);
 
-    socket.on('receive-message', (msg) => {
+    socket.on("receive-message", (msg) => {
       addMessage(msg);
     });
 
+    socket.on("user-typing", (typingUsername) => {
+      if (typingUsername !== username) {
+        setTypingUser(typingUsername);
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => setTypingUser(null), 2000);
+      }
+    });
+
     return () => {
-      socket.emit('leave-room', roomId, username);
+      socket.emit("leave-room", roomId, username);
       socket.disconnect();
       clearMessages();
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     };
   }, [roomId, username, addMessage, clearMessages, router]);
 
   const sendMessage = () => {
     if (!message.trim()) return;
     addMessage({ message, username, timestamp: new Date() });
-    socket.emit('send-message', roomId, message, username);
-    setMessage('');
+    socket.emit("send-message", roomId, message, username);
+    setMessage("");
   };
 
   const leaveRoom = () => {
-    router.push('/');
+    router.push("/");
   };
 
   const copyRoomId = () => {
     navigator.clipboard.writeText(roomId);
     toast({
-      title: 'Room ID copied!',
-      description: 'Share this with others to join the chat.',
+      title: "Room ID copied!",
+      description: "Share this with others to join the chat.",
     });
   };
 
@@ -84,7 +95,7 @@ export default function ChatClient() {
               {rooms.map((room) => (
                 <div key={room.id}>
                   <Button
-                    variant={room.active ? 'secondary' : 'ghost'}
+                    variant={room.active ? "secondary" : "ghost"}
                     className="w-full justify-start mb-1"
                     onClick={() => router.push(`/chat/${room.id}`)}
                   >
@@ -145,19 +156,19 @@ export default function ChatClient() {
                 <div
                   key={idx}
                   className={`flex flex-col ${
-                    msg.username === username ? 'items-end' : 'items-start'
+                    msg.username === username ? "items-end" : "items-start"
                   }`}
                 >
                   <div
                     className={`max-w-[80%] rounded-lg p-3 ${
                       msg.username === username
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted'
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted"
                     }`}
                   >
                     <div className="flex items-center space-x-2">
                       <p className="font-semibold text-sm">
-                        {msg.username === username ? 'You' : msg.username}
+                        {msg.username === username ? "You" : msg.username}
                       </p>
                       <span className="text-xs opacity-70">
                         {new Date(msg.timestamp).toLocaleTimeString()}
@@ -172,10 +183,18 @@ export default function ChatClient() {
 
           {/* Input Area */}
           <div className="p-4 border-t">
+            {typingUser && (
+              <div className="text-sm text-muted-foreground mb-2">
+                {typingUser} is typing...
+              </div>
+            )}
             <div className="flex space-x-2">
               <Input
                 value={message}
-                onChange={(e) => setMessage(e.target.value)}
+                onChange={(e) => {
+                  setMessage(e.target.value);
+                  socket.emit("typing", roomId, username);
+                }}
                 placeholder="Type your message..."
                 className="flex-1 h-14"
               />
