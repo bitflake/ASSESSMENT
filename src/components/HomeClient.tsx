@@ -13,7 +13,7 @@ import {
   CardFooter,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { MessageSquarePlus, LogIn } from "lucide-react";
+import { MessageSquarePlus, LogIn, Loader2 } from "lucide-react";
 import { useChatStore } from "@/store/chatStore";
 import { socket } from "@/lib/socket";
 import { useToast } from "@/hooks/use-toast";
@@ -25,6 +25,8 @@ export default function HomeClient() {
   const [roomId, setRoomId] = useState("");
   const [usernameError, setUsernameError] = useState("");
   const [roomIdError, setRoomIdError] = useState("");
+  const [isCreatingRoom, setIsCreatingRoom] = useState(false);
+  const [isJoiningRoom, setIsJoiningRoom] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -47,6 +49,8 @@ export default function HomeClient() {
     // No need to check roomId for createRoom
     setRoomIdError("");
     if (hasError) return;
+
+    setIsCreatingRoom(true);
     const newRoomId = Math.random().toString(36).substring(7);
     setUsername(username);
     localStorage.setItem("username", username);
@@ -62,10 +66,22 @@ export default function HomeClient() {
       socket.off("connect", handleConnect);
     };
 
+    const handleConnectError = (error: Error) => {
+      console.error("Socket connection error:", error);
+      setIsCreatingRoom(false);
+      toast({
+        title: "Connection Error",
+        description: "Failed to connect to chat server. Please try again.",
+        variant: "destructive",
+      });
+      socket.off("connect_error", handleConnectError);
+    };
+
     if (socket.connected) {
       handleConnect();
     } else {
       socket.on("connect", handleConnect);
+      socket.on("connect_error", handleConnectError);
     }
   };
 
@@ -85,6 +101,8 @@ export default function HomeClient() {
     }
     if (hasError) return;
 
+    setIsJoiningRoom(true);
+
     // Connect to socket and check room
     socket.connect();
 
@@ -102,6 +120,7 @@ export default function HomeClient() {
           localStorage.setItem("username", username);
           router.push(`/chat/${roomId}`);
         } else {
+          setIsJoiningRoom(false);
           toast({
             title: "Room does not exist",
             description: `Room ID '${roomId}' was not found. Please check and try again.`,
@@ -118,10 +137,22 @@ export default function HomeClient() {
       socket.off("connect", handleConnect);
     };
 
+    const handleConnectError = (error: Error) => {
+      console.error("Socket connection error:", error);
+      setIsJoiningRoom(false);
+      toast({
+        title: "Connection Error",
+        description: "Failed to connect to chat server. Please try again.",
+        variant: "destructive",
+      });
+      socket.off("connect_error", handleConnectError);
+    };
+
     if (socket.connected) {
       handleConnect();
     } else {
       socket.on("connect", handleConnect);
+      socket.on("connect_error", handleConnectError);
     }
   };
 
@@ -151,6 +182,7 @@ export default function HomeClient() {
               }}
               className="w-full"
               required
+              disabled={isCreatingRoom || isJoiningRoom}
             />
             {usernameError && (
               <p className="text-sm text-red-500 mt-1">{usernameError}</p>
@@ -167,6 +199,7 @@ export default function HomeClient() {
                 if (e.target.value.trim()) setRoomIdError("");
               }}
               className="w-full"
+              disabled={isCreatingRoom || isJoiningRoom}
             />
             {roomIdError && (
               <p className="text-sm text-red-500 mt-1">{roomIdError}</p>
@@ -179,20 +212,29 @@ export default function HomeClient() {
             className="w-full"
             variant="default"
             size="lg"
+            disabled={isCreatingRoom || isJoiningRoom}
           >
-            <MessageSquarePlus className="mr-2 h-5 w-5" />
-            Create New Room
+            {isCreatingRoom ? (
+              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+            ) : (
+              <MessageSquarePlus className="mr-2 h-5 w-5" />
+            )}
+            {isCreatingRoom ? "Creating Room..." : "Create New Room"}
           </Button>
           <Button
             onClick={joinRoom}
             className="w-full"
             variant="secondary"
             size="lg"
-            disabled={!roomId.trim()}
+            disabled={!roomId.trim() || isCreatingRoom || isJoiningRoom}
             title={!roomId.trim() ? "Please enter a room ID to join" : ""}
           >
-            <LogIn className="mr-2 h-5 w-5" />
-            Join Existing Room
+            {isJoiningRoom ? (
+              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+            ) : (
+              <LogIn className="mr-2 h-5 w-5" />
+            )}
+            {isJoiningRoom ? "Joining Room..." : "Join Existing Room"}
           </Button>
         </CardFooter>
       </Card>

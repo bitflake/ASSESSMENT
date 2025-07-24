@@ -1,29 +1,23 @@
 import { Server } from "socket.io";
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
+import { readData, writeData } from "./src/lib/jsonStore.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Simple in-memory data store (replace with your jsonStore logic)
+// Initialize data using jsonStore
 let rooms = [];
 
-// Initialize data from file if it exists
-const dataFile = path.join(__dirname, "src/data/chat.json");
+// Initialize data from jsonStore
 try {
-  if (fs.existsSync(dataFile)) {
-    const data = JSON.parse(fs.readFileSync(dataFile, "utf8"));
-    rooms = data.rooms || [];
-  }
-} catch {
-  console.log("No existing data file, starting with empty rooms");
+  const data = readData();
+  rooms = data.rooms || [];
+  console.log(`Loaded ${rooms.length} rooms from jsonStore`);
+} catch (error) {
+  console.log("No existing data, starting with empty rooms:", error.message);
+  rooms = [];
 }
 
-// Save data to file
+// Save data using jsonStore
 function saveData() {
   try {
-    fs.writeFileSync(dataFile, JSON.stringify({ rooms }, null, 2));
+    writeData({ rooms });
   } catch (error) {
     console.error("Error saving data:", error);
   }
@@ -133,28 +127,135 @@ io.on("connection", (socket) => {
     const roomIdx = rooms.findIndex((r) => r.id === roomId);
     if (roomIdx === -1) return;
     const room = rooms[roomIdx];
+
+    // Check if user is in the room
+    if (!room.users.includes(username)) return;
+
     // Remove user from room
     room.users = room.users.filter((u) => u !== username);
-    // Ownership transfer or room deletion
+
+    // Handle ownership transfer or room deletion
     if (room.owner === username) {
       if (room.users.length > 0) {
-        room.owner = room.users[0]; // Transfer ownership
+        // Transfer ownership to the next user in the list
+        room.owner = room.users[0];
+        console.log(
+          `Ownership transferred from ${username} to ${room.owner} in room ${roomId}`
+        );
+
+        // Notify all users about ownership change
+        io.to(roomId).emit("ownership-changed", {
+          newOwner: room.owner,
+          previousOwner: username,
+          roomId: roomId,
+        });
       } else {
-        rooms.splice(roomIdx, 1); // Delete room if empty
+        // No users left, delete the room
+        rooms.splice(roomIdx, 1);
+        console.log(`Room ${roomId} deleted - no users remaining`);
+
+        // Notify all users that room was deleted
+        io.to(roomId).emit("room-deleted", {
+          roomId: roomId,
+          reason: "No users remaining",
+        });
       }
     }
+
     saveData();
     socket.leave(roomId);
-    // Notify others in the room
-    socket.to(roomId).emit("user-left", username);
-    // Send updated user list
-    if (rooms[roomIdx]) {
+
+    // Notify others in the room about user leaving
+    socket.to(roomId).emit("user-left", {
+      username: username,
+      wasOwner: room.owner === username,
+      roomId: roomId,
+    });
+
+    // Send updated user list if room still exists
+    if (
+      roomIdx < rooms.length &&
+      rooms[roomIdx] &&
+      rooms[roomIdx].id === roomId
+    ) {
       io.to(roomId).emit("user-list", rooms[roomIdx].users);
+      io.to(roomId).emit("room-info", rooms[roomIdx]);
     }
   });
 
   socket.on("disconnect", () => {
     console.log("Client disconnected:", socket.id);
+
+    // Find all rooms this user was in and handle their departure
+    const userRooms = rooms.filter((room) =>
+      room.users.some((user) => user === socket.username)
+    );
+
+    userRooms.forEach((room) => {
+      const username = socket.username;
+      if (!username) return;
+
+      const roomIdx = rooms.findIndex((r) => r.id === room.id);
+      if (roomIdx === -1) return;
+
+      const roomData = rooms[roomIdx];
+
+      // Check if user is in the room
+      if (!roomData.users.includes(username)) return;
+
+      // Remove user from room
+      roomData.users = roomData.users.filter((u) => u !== username);
+
+      // Handle ownership transfer or room deletion
+      if (roomData.owner === username) {
+        if (roomData.users.length > 0) {
+          // Transfer ownership to the next user in the list
+          roomData.owner = roomData.users[0];
+          console.log(
+            `Ownership transferred from ${username} to ${roomData.owner} in room ${room.id} (disconnect)`
+          );
+
+          // Notify all users about ownership change
+          io.to(room.id).emit("ownership-changed", {
+            newOwner: roomData.owner,
+            previousOwner: username,
+            roomId: room.id,
+          });
+        } else {
+          // No users left, delete the room
+          rooms.splice(roomIdx, 1);
+          console.log(
+            `Room ${room.id} deleted - no users remaining (disconnect)`
+          );
+
+          // Notify all users that room was deleted
+          io.to(room.id).emit("room-deleted", {
+            roomId: room.id,
+            reason: "No users remaining",
+          });
+        }
+      }
+
+      // Notify others in the room about user leaving
+      io.to(room.id).emit("user-left", {
+        username: username,
+        wasOwner: roomData.owner === username,
+        roomId: room.id,
+        reason: "disconnected",
+      });
+
+      // Send updated user list if room still exists
+      if (
+        roomIdx < rooms.length &&
+        rooms[roomIdx] &&
+        rooms[roomIdx].id === room.id
+      ) {
+        io.to(room.id).emit("user-list", rooms[roomIdx].users);
+        io.to(room.id).emit("room-info", rooms[roomIdx]);
+      }
+    });
+
+    saveData();
   });
 });
 

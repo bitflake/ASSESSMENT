@@ -2,9 +2,9 @@
   "rooms": [
     {
       "id": "jpbz8h",
-      "owner": "user1",
+      "owner": "user3",
       "users": [
-        "user1"
+        "user3"
       ],
       "messages": []
     }
