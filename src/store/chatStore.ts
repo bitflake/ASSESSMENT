@@ -1,26 +1,55 @@
-import { create } from 'zustand';
+import { create } from "zustand";
 
-interface Message {
+export interface Message {
   message: string;
-  username: string;
+  username?: string;
   timestamp: Date;
+  type?: "system";
 }
 
-interface ChatStore {
+export interface ChatStore {
   username: string;
-  messages: Message[];
+  messagesByRoom: { [roomId: string]: Message[] };
+  unreadByRoom: { [roomId: string]: number };
   setUsername: (username: string) => void;
-  addMessage: (message: Message) => void;
-  clearMessages: () => void;
+  addMessage: (roomId: string, message: Message, isActiveRoom: boolean) => void;
+  clearMessages: (roomId: string) => void;
+  setMessages: (roomId: string, messages: Message[]) => void;
+  resetUnread: (roomId: string) => void;
 }
 
 export const useChatStore = create<ChatStore>((set) => ({
-  username: '',
-  messages: [],
+  username: "",
+  messagesByRoom: {},
+  unreadByRoom: {},
   setUsername: (username) => set({ username }),
-  addMessage: (message) =>
+  addMessage: (roomId, message, isActiveRoom) =>
+    set((state) => {
+      const prevMessages = state.messagesByRoom[roomId] || [];
+      const unread = state.unreadByRoom[roomId] || 0;
+      return {
+        messagesByRoom: {
+          ...state.messagesByRoom,
+          [roomId]: [...prevMessages, message],
+        },
+        unreadByRoom: {
+          ...state.unreadByRoom,
+          [roomId]: isActiveRoom ? 0 : unread + 1,
+        },
+      };
+    }),
+  clearMessages: (roomId) =>
     set((state) => ({
-      messages: [...state.messages, message],
+      messagesByRoom: { ...state.messagesByRoom, [roomId]: [] },
+      unreadByRoom: { ...state.unreadByRoom, [roomId]: 0 },
     })),
-  clearMessages: () => set({ messages: [] }),
+  setMessages: (roomId, messages) =>
+    set((state) => ({
+      messagesByRoom: { ...state.messagesByRoom, [roomId]: messages },
+      unreadByRoom: { ...state.unreadByRoom, [roomId]: 0 },
+    })),
+  resetUnread: (roomId) =>
+    set((state) => ({
+      unreadByRoom: { ...state.unreadByRoom, [roomId]: 0 },
+    })),
 }));

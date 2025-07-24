@@ -10,25 +10,20 @@ type WithSocketServerIO = NextApiResponse & {
   };
 };
 
-type SocketServerWithIO = {
-  server: {
-    io?: Server;
-  };
-};
-
 const SocketHandler = (req: NextApiRequest, res: NextApiResponse) => {
   const resWithIO = res as WithSocketServerIO;
   if (resWithIO.socket?.server?.io) {
     return res.end();
   }
 
-  // const socketServer = res.socket as unknown as SocketServerWithIO;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const io = new Server((res.socket as any).server, {
     path: "/api/socket",
   });
   resWithIO.socket.server.io = io;
 
   io.on("connection", (socket) => {
+    console.log("connected", socket);
     // JOIN ROOM
     socket.on("join-room", (roomId: string, username: string) => {
       const data = readData();
@@ -58,6 +53,15 @@ const SocketHandler = (req: NextApiRequest, res: NextApiResponse) => {
       socket.emit("room-info", room);
     });
 
+    // GET USER ROOMS
+    socket.on("get-user-rooms", (username: string) => {
+      const data = readData();
+      const userRooms = data.rooms.filter((room) =>
+        room.users.includes(username)
+      );
+      socket.emit("user-rooms", userRooms);
+    });
+
     // SEND MESSAGE
     socket.on(
       "send-message",
@@ -80,6 +84,43 @@ const SocketHandler = (req: NextApiRequest, res: NextApiResponse) => {
     socket.on("typing", (roomId: string, username: string) => {
       socket.to(roomId).emit("user-typing", username);
     });
+
+    // CHECK ROOM EXISTS
+    socket.on("check-room-exists", (roomId: string) => {
+      console.log("emit exitsts", roomId);
+      const data = readData();
+      const exists = data.rooms.some((room) => room.id === roomId);
+      socket.emit("room-exists-result", { roomId, exists });
+    });
+
+    // REMOVE USER (owner only)
+    socket.on(
+      "remove-user",
+      (roomId: string, owner: string, targetUser: string) => {
+        const data = readData();
+        const room = data.rooms.find((r) => r.id === roomId);
+        if (!room) return;
+        if (room.owner !== owner) return; // Only owner can remove
+        if (!room.users.includes(targetUser)) return;
+        // Remove user
+        room.users = room.users.filter((u) => u !== targetUser);
+        // If the removed user was the owner (shouldn't happen here), transfer ownership
+        if (room.owner === targetUser) {
+          if (room.users.length > 0) {
+            room.owner = room.users[0];
+          } else {
+            // No users left, delete room
+            const idx = data.rooms.findIndex((r) => r.id === roomId);
+            if (idx !== -1) data.rooms.splice(idx, 1);
+          }
+        }
+        writeData(data);
+        // Notify the removed user (if connected)
+        io.to(roomId).emit("user-removed", targetUser);
+        // Broadcast updated user list
+        io.to(roomId).emit("user-list", room.users);
+      }
+    );
 
     // LEAVE ROOM
     socket.on("leave-room", (roomId: string, username: string) => {
